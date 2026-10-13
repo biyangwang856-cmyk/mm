@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/micmacIGN/micmac",
+  "upstream_revision": "f8fe432101fb1852f8c4d8546504a5278f6ef57f",
+  "upstream_commit_date": "2026-06-19T16:11:34Z",
+  "archive_url": "https://codeload.github.com/micmacIGN/micmac/tar.gz/f8fe432101fb1852f8c4d8546504a5278f6ef57f",
+  "archive_sha256": "6e10661514d92d145a70756b0da84abdf5e36ba228cbd7fc4cc1c9ff4384e98c",
+  "acquisition": "Official commit-pinned source archive; local Git snapshot"
+}
