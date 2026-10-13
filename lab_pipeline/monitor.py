@@ -1,5 +1,6 @@
 """Small read-only status snapshot for the server workflow."""
 import json
+import os
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -28,4 +29,18 @@ else:
             stream.seek(max(0, build_log.stat().st_size - 4096))
             snapshot['build_tail'] = stream.read().decode(errors='replace').splitlines()[-8:]
         snapshot['build_ready'] = b'MICMAC_BUILD_READY=' in build_log.read_bytes()[-4096:]
+        build_pid = json.loads((root / '.lab/build_job.json').read_text())['pid']
+        def family(pid):
+            base = Path('/proc') / str(pid)
+            if not base.exists():
+                return []
+            try:
+                stat = (base / 'stat').read_text().rsplit(')', 1)[1].split()
+                item = {'pid': pid, 'name': (base / 'comm').read_text().strip(),
+                        'cpu_seconds': (int(stat[11]) + int(stat[12])) / os.sysconf('SC_CLK_TCK')}
+                children = (base / 'task' / str(pid) / 'children').read_text().split()
+                return [item] + [entry for child in children for entry in family(int(child))]
+            except FileNotFoundError:
+                return []
+        snapshot['build_processes'] = family(build_pid)
 print(json.dumps(snapshot, ensure_ascii=False, indent=2))
