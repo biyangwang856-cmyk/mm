@@ -123,6 +123,8 @@ def main():
     assert report['registered_cameras'] == state['config']['input_count']
     assert report['individual_rgb_orthos'] == state['config']['nadir_ortho_count']
     (OUTPUT / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
+    subprocess.run(['/usr/bin/python3', str(ROOT / 'lab_pipeline/render_details.py'),
+                    '--run', str(RUN)], check=True)
     print(json.dumps(report, indent=2), flush=True)
 
 
