@@ -423,3 +423,9 @@ include/StdAfx.h.gch
 include/StdAfx.h.pch
 include/graphes/cNewO_BuildOptions.h
 MMVII/src/DenseMatch/PSMNet/
+
+# Laboratory runtime data; code-only GitHub publication
+/.lab/
+/lab_data/
+/lab_runs/
+/build-local/
