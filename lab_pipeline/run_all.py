@@ -28,7 +28,8 @@ try:
         time.sleep(10)
     update(status='reconstructing')
     subprocess.run(['/usr/bin/python3', '-u', str(root / 'lab_pipeline/run_micmac.py'),
-                    '--threads', '64', '--resolution', '0.03'], check=True)
+                    '--threads', '64', '--resolution', '0.03',
+                    '--ba-calibration-mode', 'fixed', '--recover-failed-ba'], check=True)
     update(status='verifying')
     subprocess.run(['/usr/bin/python3', str(root / 'lab_pipeline/verify_orthophoto.py')], check=True)
     update(status='complete')

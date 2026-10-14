@@ -9,6 +9,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 import traceback
@@ -32,6 +33,29 @@ def write_json(path, value):
 def orientation_count(name):
     return len(list((RUN / ('Ori-' + name)).glob('Orientation-*.xml')))
 
+def checkpoint_transition(state, signature, allow_recovery):
+    previous = state.get('signature')
+    if previous is None or previous == signature:
+        return None
+    normalized = dict(previous)
+    normalized.setdefault('ba_calibration_mode', 'all')
+    if normalized == signature:
+        return 'record_legacy_all_mode'
+    comparable = dict(normalized)
+    comparable['ba_calibration_mode'] = signature['ba_calibration_mode']
+    stages = state.get('stages', {})
+    earlier_complete = all(stages.get(name, {}).get('status') == 'complete' for name in (
+        '01_gps_text', '02_gps_local', '03_gps_neighbors', '04_tie_points',
+        '05_sfm', '06_gps_alignment'))
+    later_started = any(name[:2].isdigit() and int(name[:2]) > 7 for name in stages)
+    if (allow_recovery and comparable == signature and
+            normalized['ba_calibration_mode'] == 'all' and signature['ba_calibration_mode'] == 'fixed' and
+            state.get('status') == 'failed' and
+            stages.get('07_bundle_adjustment', {}).get('status') == 'failed' and
+            earlier_complete and not later_started):
+        return 'recover_failed_all_free_ba_with_fixed_sfm_calibration'
+    raise RuntimeError('Existing checkpoints have different inputs or parameters; select a new run directory')
+
 def main():
     global ROOT, RUN, MM3D
     parser = argparse.ArgumentParser()
@@ -43,6 +67,9 @@ def main():
     parser.add_argument('--resolution', type=float, default=0.03)
     parser.add_argument('--gps-sigma', type=float, default=5.0)
     parser.add_argument('--neighbor-distance', type=float, default=100.0)
+    parser.add_argument('--ba-calibration-mode', choices=('fixed', 'all'), default='fixed')
+    parser.add_argument('--recover-failed-ba', action='store_true',
+        help='Permit only a failed AllFree BA to retry with the existing SfM calibration fixed')
     parser.add_argument('--stop-after', default=None)
     args = parser.parse_args()
     ROOT = args.root.resolve()
@@ -68,9 +95,19 @@ def main():
     signature = {'dataset': args.dataset, 'expected_count': expected, 'resolution': args.resolution,
         'gps_sigma': args.gps_sigma, 'neighbor_distance': args.neighbor_distance,
         'metadata_sha256': hashlib.sha256(metadata_path.read_bytes()).hexdigest(),
-        'source_revision': (ROOT / '.lab/upstream_revision.txt').read_text().strip()}
-    if state.get('signature') is not None and state['signature'] != signature:
-        raise RuntimeError('Existing checkpoints have different inputs or parameters; select a new run directory')
+        'source_revision': (ROOT / '.lab/upstream_revision.txt').read_text().strip(),
+        'ba_calibration_mode': args.ba_calibration_mode}
+    transition = checkpoint_transition(state, signature, args.recover_failed_ba)
+    if transition and transition != 'record_legacy_all_mode':
+        history = RUN / 'recovery_history' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+        history.mkdir(parents=True, exist_ok=False)
+        for old in (status_path, RUN / 'config.json', logs / '07_bundle_adjustment.log'):
+            if old.exists():
+                shutil.copy2(old, history / old.name)
+        write_json(history / 'recovery.json', {'reason': transition, 'updated_utc': utc(),
+            'previous_signature': state['signature'], 'new_signature': signature,
+            'preserved_stages': ['01', '02', '03', '04', '05', '06']})
+        state.setdefault('recoveries', []).append({'reason': transition, 'history': str(history)})
     state['signature'] = signature
     for row in metadata:
         name = Path(row['SourceFile']).name
@@ -208,7 +245,9 @@ def main():
         step('06_gps_alignment', [str(MM3D), 'CenterBascule', PATTERN, 'Arbitrary', 'RAWGNSS_N', 'Ground_Init_RTL'],
             lambda: orientation_count('Ground_Init_RTL') == expected)
         step('07_bundle_adjustment', [str(MM3D), 'Campari', PATTERN, 'Ground_Init_RTL', 'Ground_RTL',
-            f'EmGPS=[RAWGNSS_N,{args.gps_sigma}]', 'AllFree=1'], lambda: orientation_count('Ground_RTL') == expected)
+            f'EmGPS=[RAWGNSS_N,{args.gps_sigma}]',
+            'AllFree=' + ('0' if args.ba_calibration_mode == 'fixed' else '1')],
+            lambda: orientation_count('Ground_RTL') == expected)
         step('08_projected_coordinates', [str(MM3D), 'ChgSysCo', PATTERN, 'Ground_RTL',
             'RTLFromExif.xml@SysPROJ.xml', 'Ground_PROJ'], lambda: orientation_count('Ground_PROJ') == expected)
         step('09_dense_and_orthorectification', [str(MM3D), 'Malt', 'Ortho', PATTERN, 'Ground_PROJ',

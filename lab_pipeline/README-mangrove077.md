@@ -51,7 +51,7 @@ DJI XMP 内参保留为参考，没有手工改写照片元数据。
 4. `Tapioca File` 使用长边 2640 像素图像匹配，全量 405 张照片。
 5. `Tapas FraserBasic` 从匹配重新估计相机，不使用 ODX 相机。
 6. `CenterBascule` 用 GPS 对齐相机模型。
-7. `Campari` 自标定和束调整，GPS 标准差权重设为 5 米。
+7. `Campari` 保留 Tapas 求得的内参，只调整相机姿态和结构，GPS 标准差权重设为 5 米。
 8. `ChgSysCo` 变换到由照片中心经纬度确定的 WGS84 UTM 坐标。
 9. `Malt Ortho` 稠密表面和正射校正，`ResolTerrain=0.03 EZA=1 ZoomF=2`。
 10. `Tawny` 原生拼接，`RadiomEgal=0`。
@@ -76,6 +76,28 @@ bash lab_pipeline/build_micmac.sh
 ```bash
 /usr/bin/python3 lab_pipeline/monitor.py
 ```
+
+### 2026-10-14 束调整恢复
+
+原先第 7 步使用 `AllFree=1` 再次释放全部内参，在影像边角的畸变逆变换中
+发生 NaN 和不收敛，未导出最终相机。此前第 1–6 步已完成，405 张相机都已注册。
+改为 `--ba-calibration-mode fixed`（`AllFree=0`），固定第 5 步已经自标定的内参。
+这不跳过 GPS 束调整，也不代表质量已经通过验收。
+
+恢复入口 `run_all.py` 使用 `--recover-failed-ba`。检查点迁移只允许输入、尺度、GPS 权重等
+其他签名完全一致、第 1–6 步完成、第 7 步失败且第 8 步之后未开始的情况。
+迁移前自动复制原状态、配置和失败日志到 `recovery_history`，随后逐项验证并复用第 1–6 步。
+已完成束调整的实验更换内参模式时必须另建运行目录。
+
+修改前的 Git 标签为 `checkpoint/pre-fixed-ba-20261014`，完整运行快照保存在
+`../backups/micmac-20261014`。停止本次任务后可在新工作树检查旧代码：
+
+```bash
+git worktree add ../micmac-pre-fixed-ba checkpoint/pre-fixed-ba-20261014
+```
+
+新工作树只包含受 Git 管理的代码，不包含原片或缓存；完整数据恢复应使用完整备份。
+勿在重建运行中切换或回退其正在读取的工作目录。
 
 只在已有进程结束后恢复，不要重复启动：
 
